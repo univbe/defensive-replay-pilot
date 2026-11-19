@@ -130,12 +130,29 @@ def staging_summary(events, decoys, drill_session):
     }
 
 
+def compare_reports(baseline, candidate):
+    """Evaluate the candidate against a known-good baseline."""
+    if baseline["result"] != "PASS":
+        verdict = "BASELINE_NEEDS_REVIEW"
+    elif candidate["result"] != "PASS":
+        verdict = "REGRESSION"
+    else:
+        verdict = "PASS"
+    return {
+        "comparison": "checkout-release/v1",
+        "result": verdict,
+        "baseline": baseline,
+        "candidate": candidate,
+    }
+
+
 def main():
     if len(sys.argv) == 1:
         replay()
         return 0
     parser = argparse.ArgumentParser(description="Replay a local three-field CSV. Prints aggregate JSON only.")
     parser.add_argument("csv_file")
+    parser.add_argument("--baseline", metavar="CSV", help="Compare this reference export with the positional candidate export.")
     parser.add_argument("--decoy", action="append", required=True, help="Decoy route label; repeat for each label.")
     parser.add_argument("--drill-session", required=True, help="Opaque ID of the expected positive session.")
     args = parser.parse_args()
@@ -143,14 +160,16 @@ def main():
     if len(decoys) < 2 or not all(label.strip() for label in decoys) or not args.drill_session.strip():
         parser.error("Specify at least two distinct nonempty decoy labels and a nonempty drill session.")
     try:
-        events = load_events(args.csv_file)
+        summary = staging_summary(load_events(args.csv_file), decoys, args.drill_session)
+        if args.baseline:
+            baseline = staging_summary(load_events(args.baseline), decoys, args.drill_session)
+            summary = compare_reports(baseline, summary)
     except (UnicodeError, csv.Error, OSError):
         print("Could not read input as UTF-8 CSV.", file=sys.stderr)
         return 2
     except ValueError as error:
         print(str(error), file=sys.stderr)
         return 2
-    summary = staging_summary(events, decoys, args.drill_session)
     print(json.dumps(summary, indent=2))
     return 0 if summary["result"] == "PASS" else 1
 
