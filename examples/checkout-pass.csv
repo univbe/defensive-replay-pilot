@@ -1,0 +1,4 @@
+event_time,session_id,route_label
+2026-01-01T12:01:00Z,drill,fixture-b
+2026-01-01T12:00:00Z,shopper,checkout
+2026-01-01T12:00:00Z,drill,fixture-a
