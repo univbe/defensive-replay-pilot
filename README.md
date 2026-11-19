@@ -1,4 +1,20 @@
-# Run the detection pilot in staging
+# Defensive Replay Pilot
+
+This offline tool answers a release question for an on-call engineer: does a known drill raise one alert on the intended session while ordinary sessions stay quiet? Feed it a staging export to check the rule and get an aggregate report. A separate simulation demonstrates how a final VPN status check can miss a disconnect followed by a reconnect.
+
+## Try the included traces
+
+From the repository root, with Python 3.11 or newer:
+
+```sh
+python checkout_pilot.py examples/checkout-pass.csv --drill-session drill --decoy fixture-a --decoy fixture-b
+python checkout_pilot.py examples/checkout-late.csv --drill-session drill --decoy fixture-a --decoy fixture-b
+python checkout_pilot.py examples/checkout-incomplete.csv --drill-session drill --decoy fixture-a --decoy fixture-b
+```
+
+The first trace passes. The second returns `outside_window` because its visits are 61 seconds apart. The third returns `single_decoy` because the export contains only one decoy label for the drill session. Both REVIEW examples exit 1 by design.
+
+## Run a staging export
 
 Use Python 3.11 or newer. The script runs locally with the standard library. It reads an exported trace and prints JSON to standard output. It makes no network requests and sends no alerts.
 
@@ -23,7 +39,31 @@ python checkout_pilot.py staging.csv --drill-session test-drill --decoy fixture-
 
 **REVIEW** (exit 1) means a condition above was unmet. Inspect the export locally for missing drill activity, missing control sessions, or unexpected alerts. Invalid input produces a diagnostic on standard error and exits 2 without a report.
 
-The JSON contains the rule version, input type, result, event count, other-session count, drill-detection flag and other-session alert count. It omits filenames, timestamps, identifiers and route labels. The operator supplies the data and can attest where it came from. A pass describes this trace only.
+The JSON contains the rule identifier, input type, result, event count, other-session count, drill-detection flag, other-session alert count, evidence classification and reasons for review. It omits filenames, timestamps, identifiers and route labels. The operator supplies the data and can attest where it came from. A pass describes this trace only.
+
+| Review reason | What to check locally |
+|---|---|
+| `session_absent` | Confirm the expected session ID and export interval. |
+| `no_decoy_visits` | The session exists. Check its route labels against the configured decoys. |
+| `single_decoy` | Only one distinct decoy appears for this session. Check both visits and their logging paths. |
+| `outside_window` | Distinct decoys appear, but their timestamps are too far apart. Check the drill timing and timestamp source. |
+| `detector_mismatch` | The input evidence disagrees with the emitted alert. Preserve a minimal synthetic reproduction. |
+| `no_control_sessions` | Include ordinary activity from at least one other session. |
+| `unexpected_alerts` | Review the other alerted sessions locally. |
+
+## Verify a change
+
+```sh
+python -m unittest discover -s tests -v
+python checkout_pilot.py
+python vpn_replay.py --json
+```
+
+The checks cover CLI parsing, privacy markers, per-session isolation, time boundaries, missing data, detector mismatch and the VPN simulation. GitHub Actions runs the suite on Windows and Linux.
+
+## Operational scope
+
+Use a bounded export: the runner sorts the full input in memory. Decoy labels must be meaningful for your application and session IDs stable throughout the drill. The report describes evidence present in the file; a missing event can mean incomplete capture or missing activity. Production detection quality and adoption require validation by the service owner. The VPN example uses a scripted agent and an in-memory controller.
 
 Running `python checkout_pilot.py` without arguments runs the original synthetic self-test.
 
