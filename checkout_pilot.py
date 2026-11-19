@@ -73,16 +73,53 @@ def load_events(filename):
     return sorted(events)
 
 
+def _drill_evidence(events, decoys, drill_session):
+    """Classify the ordered input independently of the detector's output."""
+    seen = False
+    previous = None
+    distinct = set()
+    for second, session, label in events:
+        if session != drill_session:
+            continue
+        seen = True
+        if label not in decoys:
+            continue
+        distinct.add(label)
+        # The nearest differently labeled pair occurs at a label transition.
+        if previous and label != previous[1] and second - previous[0] <= 60:
+            return "qualifying_pair"
+        previous = (second, label)
+    if not seen:
+        return "session_absent"
+    if not distinct:
+        return "no_decoy_visits"
+    if len(distinct) == 1:
+        return "single_decoy"
+    return "outside_window"
+
+
 def staging_summary(events, decoys, drill_session):
     alerts = detect(events, decoys)
     alerted = {session for session, _, _ in alerts}
     controls = {session for _, session, _ in events if session != drill_session}
     drill_detected = drill_session in alerted
     other_alerts = len(alerted - {drill_session})
+    evidence = _drill_evidence(events, decoys, drill_session)
+    reasons = []
+    if evidence != "qualifying_pair":
+        reasons.append(evidence)
+    if drill_detected != (evidence == "qualifying_pair"):
+        reasons.append("detector_mismatch")
+    if not controls:
+        reasons.append("no_control_sessions")
+    if other_alerts:
+        reasons.append("unexpected_alerts")
     return {
         "pilot": "two-distinct-decoys-60s/v1",
         "source": "operator-supplied CSV",
-        "result": "PASS" if controls and drill_detected and other_alerts == 0 else "REVIEW",
+        "result": "REVIEW" if reasons else "PASS",
+        "drill_evidence": evidence,
+        "review_reasons": reasons,
         "event_count": len(events),
         "other_sessions_seen": len(controls),
         "drill_detected": drill_detected,
