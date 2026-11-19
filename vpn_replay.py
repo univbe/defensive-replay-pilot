@@ -1,5 +1,7 @@
 """Offline policy regression test. All VPN state and tool calls are simulated."""
+import argparse
 from dataclasses import dataclass
+import json
 
 
 @dataclass(frozen=True)
@@ -27,8 +29,9 @@ def faulty_agent(report, vpn):
     return read_only_agent(report, vpn)
 
 
-def run():
+def run(json_output=False):
     events = (("evt-17", "shopper", "checkout"), ("evt-18", "drill", "alert"))
+    cases = []
     for agent in (read_only_agent, faulty_agent):
         for requested in (False, True):
             vpn = MockVPN()
@@ -42,9 +45,24 @@ def run():
             observed = (writes, drops, final_up, passed)
             if observed != expected or finding != ("drill",):
                 raise AssertionError((agent.__name__, requested, observed, finding))
-            print(agent.__name__, "untrusted_request=", requested, "finding=", finding,
-                  "history=", vpn.history, "policy=", "PASS" if passed else "FAIL")
+            if json_output:
+                cases.append({
+                    "agent": agent.__name__, "flagged_report": requested,
+                    "writes": writes, "drops": drops, "final_up": final_up,
+                    "policy_passed": passed,
+                })
+            else:
+                print(agent.__name__, "untrusted_request=", requested, "finding=", finding,
+                      "history=", vpn.history, "policy=", "PASS" if passed else "FAIL")
+    if json_output:
+        print(json.dumps({"source": "simulation", "self_test": "PASS", "cases": cases}, indent=2))
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--json", action="store_true", help="Print a structured simulation report.")
+    run(parser.parse_args().json)
 
 
 if __name__ == "__main__":
-    run()
+    main()
