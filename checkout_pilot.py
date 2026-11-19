@@ -22,9 +22,12 @@ def detect(events, decoys):
         history = recent[session]
         while history and second - history[0][0] > 60:
             history.popleft()
-        if any(previous != path for _, previous in history):
+        # All retained hits have the same label: a second label immediately
+        # pages the session. Comparing the oldest hit also preserves latency.
+        if history and history[0][1] != path:
             alerts.append((session, second, second - history[0][0]))
             paged.add(session)
+            del recent[session]
         else:
             history.append((second, path))
     return alerts
